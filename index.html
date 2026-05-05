@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Battleship</title>
+<style>
+  :root {
+    --cell: 34px;
+    --bg: #0b1d2a;
+    --panel: #102a3c;
+    --grid: #173e57;
+    --water: #1b4e72;
+    --water2: #1f5a82;
+    --hit: #e63946;
+    --miss: #cfd8dc;
+    --ship: #4a6572;
+    --ship-preview-ok: #43a047;
+    --ship-preview-bad: #c62828;
+    --text: #e6f1f7;
+    --accent: #ffb703;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(ellipse at top, #14385a, var(--bg));
+    color: var(--text);
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 {
+    text-align: center;
+    margin: 0 0 10px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-shadow: 0 2px 6px rgba(0,0,0,0.5);
+  }
+  #status {
+    text-align: center;
+    font-size: 1.05rem;
+    min-height: 1.5em;
+    margin-bottom: 16px;
+  }
+  #boards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 30px;
+    justify-content: center;
+  }
+  .board-wrap {
+    background: var(--panel);
+    padding: 14px;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .board-wrap h2 {
+    margin: 0 0 10px;
+    font-size: 1rem;
+    text-align: center;
+    letter-spacing: 1px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 20px repeat(10, var(--cell));
+    grid-template-rows: 20px repeat(10, var(--cell));
+    gap: 2px;
+    background: var(--grid);
+    padding: 6px;
+    border-radius: 6px;
+  }
+  .label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    color: #9fbcd0;
+  }
+  .cell {
+    width: var(--cell);
+    height: var(--cell);
+    background: linear-gradient(135deg, var(--water), var(--water2));
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.05s;
+  }
+  .cell.no-click { cursor: default; }
+  .cell.ship { background: var(--ship); }
+  .cell.hit::after {
+    content: "✸";
+    color: var(--hit);
+    font-size: 1.4rem;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-shadow: 0 0 4px #000;
+  }
+  .cell.miss::after {
+    content: "•";
+    color: var(--miss);
+    font-size: 1.6rem;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cell.sunk { background: #5a1a1a !important; }
+  .cell.preview-ok { background: var(--ship-preview-ok); }
+  .cell.preview-bad { background: var(--ship-preview-bad); }
+  .cell:hover:not(.no-click) { transform: scale(1.05); }
+
+  #controls {
+    text-align: center;
+    margin: 16px 0;
+  }
+  button {
+    background: var(--accent);
+    color: #1a1a1a;
+    border: none;
+    padding: 8px 18px;
+    margin: 0 4px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #ship-info {
+    text-align: center;
+    margin-bottom: 8px;
+    font-size: 0.95rem;
+  }
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+    margin-top: 18px;
+    font-size: 0.85rem;
+    color: #b8d0e0;
+  }
+  .legend span::before {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 4px;
+    vertical-align: middle;
+    border-radius: 2px;
+  }
+  .legend .l-ship::before { background: var(--ship); }
+  .legend .l-hit::before { background: var(--hit); }
+  .legend .l-miss::before { background: var(--miss); }
+</style>
+</head>
+<body>
+  <h1>BATTLESHIP</h1>
+  <div id="status">Place your ships. Click to place, right-click (or press R) to rotate.</div>
+  <div id="ship-info"></div>
+  <div id="controls">
+    <button id="rotate-btn">Rotate (R)</button>
+    <button id="random-btn">Random Placement</button>
+    <button id="start-btn" disabled>Start Game</button>
+    <button id="reset-btn" style="display:none;">New Game</button>
+  </div>
+  <div id="boards">
+    <div class="board-wrap">
+      <h2>YOUR FLEET</h2>
+      <div class="grid" id="player-grid"></div>
+    </div>
+    <div class="board-wrap">
+      <h2>ENEMY WATERS</h2>
+      <div class="grid" id="enemy-grid"></div>
+    </div>
+  </div>
+  <div class="legend">
+    <span class="l-ship">Ship</span>
+    <span class="l-hit">Hit</span>
+    <span class="l-miss">Miss</span>
+  </div>
+
+<script>
+const SIZE = 10;
+const SHIPS = [
+  { name: "Carrier", len: 5 },
+  { name: "Battleship", len: 4 },
+  { name: "Cruiser", len: 3 },
+  { name: "Submarine", len: 3 },
+  { name: "Destroyer", len: 2 },
+];
+
+const state = {
+  phase: "placing", // placing | playing | over
+  placeIdx: 0,
+  horizontal: true,
+  player: createBoard(),
+  ai: createBoard(),
+  aiHunt: { mode: "search", queue: [], firstHit: null, lastHit: null, dir: null },
+};
+
+function createBoard() {
+  return {
+    grid: Array.from({ length: SIZE }, () => Array(SIZE).fill(null)), // null | shipId
+    shots: Array.from({ length: SIZE }, () => Array(SIZE).fill(false)),
+    ships: [], // {id, name, len, cells:[[r,c]], hits:Set}
+  };
+}
+
+function buildGridDOM(elId, owner) {
+  const el = document.getElementById(elId);
+  el.innerHTML = "";
+  const corner = document.createElement("div");
+  corner.className = "label";
+  el.appendChild(corner);
+  for (let c = 0; c < SIZE; c++) {
+    const d = document.createElement("div");
+    d.className = "label";
+    d.textContent = String.fromCharCode(65 + c);
+    el.appendChild(d);
+  }
+  for (let r = 0; r < SIZE; r++) {
+    const rl = document.createElement("div");
+    rl.className = "label";
+    rl.textContent = r + 1;
+    el.appendChild(rl);
+    for (let c = 0; c < SIZE; c++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+      cell.dataset.owner = owner;
+      el.appendChild(cell);
+    }
+  }
+}
+
+function cellEl(owner, r, c) {
+  const id = owner === "player" ? "player-grid" : "enemy-grid";
+  return document.querySelector(`#${id} .cell[data-r="${r}"][data-c="${c}"]`);
+}
+
+function canPlace(board, r, c, len, horiz) {
+  for (let i = 0; i < len; i++) {
+    const rr = horiz ? r : r + i;
+    const cc = horiz ? c + i : c;
+    if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) return false;
+    if (board.grid[rr][cc] !== null) return false;
+  }
+  return true;
+}
+
+function placeShip(board, ship, r, c, horiz) {
+  const cells = [];
+  for (let i = 0; i < ship.len; i++) {
+    const rr = horiz ? r : r + i;
+    const cc = horiz ? c + i : c;
+    board.grid[rr][cc] = ship.id;
+    cells.push([rr, cc]);
+  }
+  board.ships.push({ ...ship, cells, hits: new Set() });
+}
+
+function randomPlace(board) {
+  board.grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+  board.ships = [];
+  SHIPS.forEach((s, idx) => {
+    const ship = { id: idx, name: s.name, len: s.len };
+    let placed = false;
+    while (!placed) {
+      const horiz = Math.random() < 0.5;
+      const r = Math.floor(Math.random() * SIZE);
+      const c = Math.floor(Math.random() * SIZE);
+      if (canPlace(board, r, c, s.len, horiz)) {
+        placeShip(board, ship, r, c, horiz);
+        placed = true;
+      }
+    }
+  });
+}
+
+function renderPlayerShips() {
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const el = cellEl("player", r, c);
+      el.classList.remove("ship", "preview-ok", "preview-bad");
+      if (state.player.grid[r][c] !== null) el.classList.add("ship");
+    }
+  }
+}
+
+function clearPreview() {
+  document.querySelectorAll("#player-grid .cell").forEach(c =>
+    c.classList.remove("preview-ok", "preview-bad")
+  );
+}
+
+function showPreview(r, c) {
+  clearPreview();
+  if (state.phase !== "placing") return;
+  const ship = SHIPS[state.placeIdx];
+  if (!ship) return;
+  const ok = canPlace(state.player, r, c, ship.len, state.horizontal);
+  for (let i = 0; i < ship.len; i++) {
+    const rr = state.horizontal ? r : r + i;
+    const cc = state.horizontal ? c + i : c;
+    if (rr < SIZE && cc < SIZE) {
+      const el = cellEl("player", rr, cc);
+      if (el) el.classList.add(ok ? "preview-ok" : "preview-bad");
+    }
+  }
+}
+
+function updateShipInfo() {
+  const info = document.getElementById("ship-info");
+  if (state.phase === "placing") {
+    const ship = SHIPS[state.placeIdx];
+    info.textContent = ship
+      ? `Placing: ${ship.name} (${ship.len}) — ${state.horizontal ? "Horizontal" : "Vertical"}`
+      : "All ships placed!";
+  } else {
+    info.textContent = "";
+  }
+}
+
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
+
+// --- Player placement handlers ---
+function onPlayerCellClick(e) {
+  if (state.phase !== "placing") return;
+  const r = +e.target.dataset.r, c = +e.target.dataset.c;
+  if (Number.isNaN(r)) return;
+  const shipDef = SHIPS[state.placeIdx];
+  if (!shipDef) return;
+  if (!canPlace(state.player, r, c, shipDef.len, state.horizontal)) return;
+  placeShip(state.player, { id: state.placeIdx, ...shipDef }, r, c, state.horizontal);
+  state.placeIdx++;
+  renderPlayerShips();
+  updateShipInfo();
+  if (state.placeIdx >= SHIPS.length) {
+    document.getElementById("start-btn").disabled = false;
+    setStatus("Fleet ready. Press Start Game.");
+  }
+}
+
+function onPlayerCellHover(e) {
+  const r = +e.target.dataset.r, c = +e.target.dataset.c;
+  if (!Number.isNaN(r)) showPreview(r, c);
+}
+
+function rotate() {
+  state.horizontal = !state.horizontal;
+  updateShipInfo();
+}
+
+// --- Game flow ---
+function startGame() {
+  randomPlace(state.ai);
+  state.phase = "playing";
+  document.getElementById("rotate-btn").style.display = "none";
+  document.getElementById("random-btn").style.display = "none";
+  document.getElementById("start-btn").style.display = "none";
+  document.getElementById("reset-btn").style.display = "inline-block";
+  clearPreview();
+  updateShipInfo();
+  setStatus("Your turn — fire at enemy waters!");
+}
+
+function onEnemyCellClick(e) {
+  if (state.phase !== "playing") return;
+  const r = +e.target.dataset.r, c = +e.target.dataset.c;
+  if (Number.isNaN(r)) return;
+  if (state.ai.shots[r][c]) return;
+  fireAt(state.ai, r, c, "enemy");
+  if (checkWin(state.ai)) {
+    endGame(true);
+    return;
+  }
+  setStatus("Enemy's turn...");
+  setTimeout(aiTurn, 600);
+}
+
+function fireAt(board, r, c, owner) {
+  board.shots[r][c] = true;
+  const el = cellEl(owner, r, c);
+  el.classList.add("no-click");
+  const shipId = board.grid[r][c];
+  if (shipId !== null) {
+    el.classList.add("hit");
+    const ship = board.ships.find(s => s.id === shipId);
+    ship.hits.add(`${r},${c}`);
+    if (ship.hits.size === ship.len) {
+      ship.cells.forEach(([rr, cc]) => cellEl(owner, rr, cc).classList.add("sunk"));
+      const who = owner === "enemy" ? "You sunk the enemy" : "Enemy sunk your";
+      flashStatus(`${who} ${ship.name}!`);
+    }
+    return true;
+  } else {
+    el.classList.add("miss");
+    return false;
+  }
+}
+
+let statusTimer;
+function flashStatus(msg) {
+  setStatus(msg);
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => {
+    if (state.phase === "playing")
+      setStatus(state.aiThinking ? "Enemy's turn..." : "Your turn — fire!");
+  }, 1500);
+}
+
+function checkWin(board) {
+  return board.ships.every(s => s.hits.size === s.len);
+}
+
+// --- AI turn with simple hunt/target ---
+function aiTurn() {
+  if (state.phase !== "playing") return;
+  state.aiThinking = true;
+  const [r, c] = chooseAIShot();
+  const hit = fireAt(state.player, r, c, "player");
+  updateAIBrain(r, c, hit);
+  if (checkWin(state.player)) {
+    endGame(false);
+    return;
+  }
+  state.aiThinking = false;
+  setStatus("Your turn — fire!");
+}
+
+function chooseAIShot() {
+  const b = state.player;
+  // Target queue first
+  while (state.aiHunt.queue.length) {
+    const [r, c] = state.aiHunt.queue.shift();
+    if (r >= 0 && r < SIZE && c >= 0 && c < SIZE && !b.shots[r][c]) return [r, c];
+  }
+  // Search using parity (checkerboard) for efficiency
+  const candidates = [];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (!b.shots[r][c] && (r + c) % 2 === 0) candidates.push([r, c]);
+    }
+  }
+  if (candidates.length === 0) {
+    for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++)
+        if (!b.shots[r][c]) candidates.push([r, c]);
+  }
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function updateAIBrain(r, c, hit) {
+  const h = state.aiHunt;
+  const shipId = state.player.grid[r][c];
+  if (hit) {
+    const ship = state.player.ships.find(s => s.id === shipId);
+    if (ship.hits.size === ship.len) {
+      // sunk: reset hunt
+      h.mode = "search";
+      h.queue = [];
+      h.firstHit = null;
+      h.lastHit = null;
+      h.dir = null;
+    } else {
+      if (h.mode === "search") {
+        h.mode = "target";
+        h.firstHit = [r, c];
+        h.lastHit = [r, c];
+        h.queue = [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([rr,cc]) =>
+          rr>=0&&rr<SIZE&&cc>=0&&cc<SIZE&&!state.player.shots[rr][cc]);
+      } else {
+        // continuing target — extend in same direction
+        const [fr, fc] = h.firstHit;
+        const dr = Math.sign(r - fr), dc = Math.sign(c - fc);
+        h.lastHit = [r, c];
+        const nr = r + dr, nc = c + dc;
+        if (nr>=0&&nr<SIZE&&nc>=0&&nc<SIZE&&!state.player.shots[nr][nc]) {
+          h.queue.unshift([nr, nc]);
+        } else {
+          // bounce back from firstHit other direction
+          const br = fr - dr, bc = fc - dc;
+          if (br>=0&&br<SIZE&&bc>=0&&bc<SIZE&&!state.player.shots[br][bc]) {
+            h.queue.unshift([br, bc]);
+          }
+        }
+      }
+    }
+  } else if (h.mode === "target" && h.firstHit && h.lastHit) {
+    // miss while targeting — try opposite side from firstHit
+    const [fr, fc] = h.firstHit;
+    const [lr, lc] = h.lastHit;
+    if (lr !== fr || lc !== fc) {
+      const dr = Math.sign(fr - lr), dc = Math.sign(fc - lc);
+      const nr = fr + dr, nc = fc + dc;
+      if (nr>=0&&nr<SIZE&&nc>=0&&nc<SIZE&&!state.player.shots[nr][nc]) {
+        h.queue.unshift([nr, nc]);
+      }
+    }
+  }
+}
+
+function endGame(playerWon) {
+  state.phase = "over";
+  setStatus(playerWon ? "🎉 Victory! You sunk the enemy fleet!" : "💀 Defeat! Your fleet has been destroyed.");
+  // Reveal AI ships
+  for (const ship of state.ai.ships) {
+    for (const [r, c] of ship.cells) {
+      const el = cellEl("enemy", r, c);
+      if (!el.classList.contains("hit")) el.classList.add("ship");
+    }
+  }
+  document.querySelectorAll(".cell").forEach(c => c.classList.add("no-click"));
+}
+
+function resetGame() {
+  state.phase = "placing";
+  state.placeIdx = 0;
+  state.horizontal = true;
+  state.player = createBoard();
+  state.ai = createBoard();
+  state.aiHunt = { mode: "search", queue: [], firstHit: null, lastHit: null, dir: null };
+  buildGridDOM("player-grid", "player");
+  buildGridDOM("enemy-grid", "enemy");
+  attachHandlers();
+  document.getElementById("rotate-btn").style.display = "inline-block";
+  document.getElementById("random-btn").style.display = "inline-block";
+  document.getElementById("start-btn").style.display = "inline-block";
+  document.getElementById("start-btn").disabled = true;
+  document.getElementById("reset-btn").style.display = "none";
+  updateShipInfo();
+  setStatus("Place your ships. Click to place, right-click (or press R) to rotate.");
+}
+
+function attachHandlers() {
+  document.querySelectorAll("#player-grid .cell").forEach(c => {
+    c.addEventListener("click", onPlayerCellClick);
+    c.addEventListener("mouseenter", onPlayerCellHover);
+    c.addEventListener("contextmenu", e => { e.preventDefault(); rotate(); if (!Number.isNaN(+c.dataset.r)) showPreview(+c.dataset.r, +c.dataset.c); });
+  });
+  document.querySelectorAll("#player-grid").forEach(g =>
+    g.addEventListener("mouseleave", clearPreview));
+  document.querySelectorAll("#enemy-grid .cell").forEach(c => {
+    c.addEventListener("click", onEnemyCellClick);
+  });
+}
+
+document.getElementById("rotate-btn").addEventListener("click", rotate);
+document.getElementById("random-btn").addEventListener("click", () => {
+  if (state.phase !== "placing") return;
+  randomPlace(state.player);
+  state.placeIdx = SHIPS.length;
+  renderPlayerShips();
+  updateShipInfo();
+  document.getElementById("start-btn").disabled = false;
+  setStatus("Fleet ready. Press Start Game.");
+});
+document.getElementById("start-btn").addEventListener("click", startGame);
+document.getElementById("reset-btn").addEventListener("click", resetGame);
+window.addEventListener("keydown", e => {
+  if (e.key === "r" || e.key === "R") rotate();
+});
+
+// init
+buildGridDOM("player-grid", "player");
+buildGridDOM("enemy-grid", "enemy");
+attachHandlers();
+updateShipInfo();
+</script>
+</body>
+</html>
