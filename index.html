@@ -196,10 +196,15 @@ const state = {
   phase: "placing", // placing | playing | over
   placeIdx: 0,
   horizontal: true,
+  playerTurn: true,
+  aiThinking: false,
   player: createBoard(),
   ai: createBoard(),
   aiHunt: { mode: "search", queue: [], firstHit: null, lastHit: null, dir: null },
 };
+
+let aiTimeoutId;
+let sunkAnnounced = false;
 
 function createBoard() {
   return {
@@ -353,12 +358,14 @@ function onPlayerCellHover(e) {
 }
 
 function rotate() {
+  if (state.phase !== "placing") return;
   state.horizontal = !state.horizontal;
   updateShipInfo();
 }
 
 // --- Game flow ---
 function startGame() {
+  if (state.phase !== "placing") return;
   randomPlace(state.ai);
   state.phase = "playing";
   document.getElementById("rotate-btn").style.display = "none";
@@ -372,16 +379,18 @@ function startGame() {
 
 function onEnemyCellClick(e) {
   if (state.phase !== "playing") return;
+  if (!state.playerTurn) return;
   const r = +e.target.dataset.r, c = +e.target.dataset.c;
   if (Number.isNaN(r)) return;
   if (state.ai.shots[r][c]) return;
+  state.playerTurn = false;
   fireAt(state.ai, r, c, "enemy");
   if (checkWin(state.ai)) {
     endGame(true);
     return;
   }
-  setStatus("Enemy's turn...");
-  setTimeout(aiTurn, 600);
+  if (!sunkAnnounced) setStatus("Enemy's turn...");
+  aiTimeoutId = setTimeout(aiTurn, 600);
 }
 
 function fireAt(board, r, c, owner) {
@@ -408,8 +417,10 @@ function fireAt(board, r, c, owner) {
 let statusTimer;
 function flashStatus(msg) {
   setStatus(msg);
+  sunkAnnounced = true;
   clearTimeout(statusTimer);
   statusTimer = setTimeout(() => {
+    sunkAnnounced = false;
     if (state.phase === "playing")
       setStatus(state.aiThinking ? "Enemy's turn..." : "Your turn — fire!");
   }, 1500);
@@ -431,7 +442,8 @@ function aiTurn() {
     return;
   }
   state.aiThinking = false;
-  setStatus("Your turn — fire!");
+  state.playerTurn = true;
+  if (!sunkAnnounced) setStatus("Your turn — fire!");
 }
 
 function chooseAIShot() {
@@ -508,6 +520,11 @@ function updateAIBrain(r, c, hit) {
 
 function endGame(playerWon) {
   state.phase = "over";
+  state.aiThinking = false;
+  state.playerTurn = false;
+  clearTimeout(aiTimeoutId);
+  clearTimeout(statusTimer);
+  sunkAnnounced = false;
   setStatus(playerWon ? "🎉 Victory! You sunk the enemy fleet!" : "💀 Defeat! Your fleet has been destroyed.");
   // Reveal AI ships
   for (const ship of state.ai.ships) {
@@ -526,6 +543,11 @@ function resetGame() {
   state.player = createBoard();
   state.ai = createBoard();
   state.aiHunt = { mode: "search", queue: [], firstHit: null, lastHit: null, dir: null };
+  state.playerTurn = true;
+  state.aiThinking = false;
+  clearTimeout(aiTimeoutId);
+  clearTimeout(statusTimer);
+  sunkAnnounced = false;
   buildGridDOM("player-grid", "player");
   buildGridDOM("enemy-grid", "enemy");
   attachHandlers();
